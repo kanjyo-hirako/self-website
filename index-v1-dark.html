@@ -1,0 +1,1126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>优一 · 作品集 — Kanjyo Hirako</title>
+<meta name="description" content="优一（Kanjyo Hirako）的个人项目作品集 —— 以 WebGL2 实时生成的逆时针极光涡旋为背景，六个项目沿螺旋轨道随滚动逐一展开。">
+<meta name="theme-color" content="#0a0a0f">
+<!--
+  单文件自包含：零外部请求。
+  WebGL2 优先 → 回退 WebGL1 → 再回退纯 CSS 背景 + 提示文案，任何一级都不留黑屏。
+  Open Design 检测到 getContext('webgl2') 后会以 powered preview 渲染本文件。
+-->
+<style>
+/* ═══════════════ 1. 设计令牌 ═══════════════ */
+:root{
+  color-scheme: dark;
+
+  /* 先写 hex 兜底，再写 oklch —— 不认识 oklch 的浏览器保留上一行 */
+  --bg:#0a0a0f;        --bg: oklch(0.13 0.012 285);
+  --surface:#14141f;   --surface: oklch(0.20 0.016 285);
+  --fg:#f0f2f5;        --fg: oklch(0.96 0.004 250);
+  --muted:#7a7d8e;     --muted: oklch(0.62 0.020 275);
+  --border:#2a2a3a;    --border: oklch(0.31 0.020 285);
+  --accent:#63fe13;    --accent: oklch(0.87 0.270 132);
+
+  /* 次级正文色。规划里的 --muted(0.58) 在 --surface 上只有 4.38:1，
+     达不到正文 4.5:1 的硬性要求，故单列一档并整体抬到 0.62。 */
+  --fg-2:#c2c5cc;      --fg-2: oklch(0.80 0.008 270);
+
+  --font-display: 'Space Grotesk','Segoe UI Variable Display','Segoe UI',system-ui,'PingFang SC','Microsoft YaHei',sans-serif;
+  --font-body: 'Inter',system-ui,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'JetBrains Mono','Cascadia Code',ui-monospace,Consolas,monospace;
+
+  --pad: clamp(20px, 4.2vw, 72px);
+  --ease-out: cubic-bezier(.2, 0, 0, 1);
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+html{ -webkit-text-size-adjust:100%; }
+
+body{
+  margin:0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size:16px;
+  line-height:1.6;
+  /* 用 clip 而不是 hidden：hidden 会让 body 变成滚动容器，position:sticky 会失效 */
+  overflow-x:clip;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+p{ text-wrap:pretty; }
+h1,h2,h3{ text-wrap:balance; }
+:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
+
+/* WebGL 完全不可用时的兜底：一张静态 CSS 极光，绝不黑屏 */
+body.no-gl{
+  background:
+    radial-gradient(120% 95% at 50% 38%, oklch(0.32 0.11 148) 0%, oklch(0.18 0.05 262) 46%, oklch(0.11 0.02 285) 100%);
+}
+body.no-gl #gl{ display:none; }
+
+/* ═══════════════ 2. 画布与页面图层 ═══════════════ */
+#gl{ position:fixed; inset:0; width:100%; height:100%; display:block; z-index:0; }
+.page{ position:relative; z-index:2; }
+
+/* ═══════════════ 3. HUD：状态徽标 + 滚动进度 ═══════════════ */
+.hud{ position:fixed; z-index:3; pointer-events:none; }
+
+#fps{
+  top: clamp(14px, 2.4vw, 26px);
+  left: clamp(14px, 2.4vw, 26px);
+  display:flex; align-items:center; gap:8px;
+  padding:7px 12px 7px 10px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  background: oklch(0.13 0.012 285 / .66);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-family: var(--font-mono);
+  font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+  color: var(--muted);
+}
+#fps .dot{
+  flex:none;
+  width:6px; height:6px; border-radius:50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px oklch(0.87 0.270 132 / .18);
+}
+body.no-gl #fps{ color: var(--fg-2); }
+body.no-gl #fps .dot{ background: var(--muted); box-shadow:none; }
+
+.progress{
+  top:50%; right: clamp(10px, 1.6vw, 20px);
+  transform: translateY(-50%);
+  width:2px; height: min(38vh, 320px);
+  border-radius:2px;
+  background: oklch(0.31 0.020 285 / .55);
+  overflow:hidden;
+}
+.progress__bar{
+  display:block; width:100%; height:100%;
+  background: var(--accent);
+  transform: scaleY(0); transform-origin: top center;
+}
+
+/* ═══════════════ 4. Hero ═══════════════ */
+.hero{
+  position:relative;
+  min-height:100vh; min-height:100svh;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  text-align:center;
+  padding: var(--pad);
+}
+/* 只在文字背后压暗，极光其余部分保持鲜亮 */
+.hero__veil{
+  position:absolute; inset:0; z-index:0;
+  background: radial-gradient(58% 46% at 50% 50%,
+      oklch(0.13 0.012 285 / .84) 0%,
+      oklch(0.13 0.012 285 / .58) 52%,
+      oklch(0.13 0.012 285 / 0) 100%);
+  pointer-events:none;
+}
+.hero__inner{ position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; }
+
+.hero [data-reveal]{
+  opacity:0;
+  transform: translateY(16px);
+  transition: opacity .95s ease, transform .95s var(--ease-out);
+  transition-delay: var(--d, 0ms);
+}
+body.is-ready .hero [data-reveal]{ opacity:1; transform:none; }
+body.no-entry .hero [data-reveal]{ transition:none; }
+
+.hero__kicker{
+  margin:0 0 clamp(10px, 1.6vw, 22px);
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1.05vw, 14px);
+  letter-spacing:.42em; text-indent:.42em;   /* 补偿末字后多出的字距，使视觉居中 */
+  text-transform:uppercase;
+  color: var(--accent);
+  text-shadow: 0 1px 18px oklch(0.13 0.012 285 / .9);
+}
+.hero__name{
+  margin:0;
+  font-family: var(--font-display);
+  font-size: clamp(56px, 13vw, 168px);
+  line-height:1; font-weight:800; letter-spacing:0;
+  text-shadow: 0 4px 40px oklch(0.13 0.012 285 / .85), 0 0 90px oklch(0.13 0.012 285 / .7);
+}
+.hero__motto{
+  margin: clamp(14px, 2.2vw, 28px) 0 0;
+  font-size: clamp(15px, 1.7vw, 22px);
+  line-height:1.75;
+  text-shadow: 0 2px 26px oklch(0.13 0.012 285 / .95);
+}
+.hero__tagline{
+  margin: clamp(8px, 1.2vw, 14px) 0 0;
+  font-family: var(--font-mono);
+  font-size: clamp(10px, .95vw, 12.5px);
+  letter-spacing:.24em; text-indent:.24em;
+  text-transform:uppercase;
+  color: var(--muted);
+  text-shadow: 0 2px 20px oklch(0.13 0.012 285 / .95);
+}
+/* 呼吸动画放在内层，避免与 [data-reveal] 的 transform 互相覆盖 */
+.hero__scroll{
+  position:absolute; left:0; right:0; bottom: clamp(20px, 4vh, 46px);
+  margin:0; text-align:center;
+}
+.hero__scroll-in{
+  display:inline-block;
+  font-family: var(--font-mono);
+  font-size:10.5px; letter-spacing:.3em; text-indent:.3em;
+  text-transform:uppercase;
+  color: var(--muted);
+  text-shadow: 0 2px 18px oklch(0.13 0.012 285 / .95);
+  animation: breathe 2.8s var(--ease-out) infinite;
+}
+@keyframes breathe{
+  0%,100%{ opacity:.5; transform: translateY(0); }
+  50%    { opacity:1;  transform: translateY(5px); }
+}
+
+/* ═══════════════ 5. 章节标题 ═══════════════ */
+.section-head{
+  position:relative; isolation:isolate;
+  padding: clamp(72px, 16vh, 170px) var(--pad) clamp(28px, 6vh, 60px);
+  max-width:1180px; margin:0 auto;
+}
+.section-head::before{
+  content:''; position:absolute; inset:-16% -10%; z-index:-1;
+  background: radial-gradient(66% 78% at 16% 56%,
+      oklch(0.13 0.012 285 / .90) 0%,
+      oklch(0.13 0.012 285 / .58) 58%,
+      oklch(0.13 0.012 285 / 0) 100%);
+  pointer-events:none;
+}
+.section-head__kicker{
+  margin:0 0 10px;
+  font-family: var(--font-mono);
+  font-size:11px; letter-spacing:.34em; text-transform:uppercase;
+  color: var(--muted);
+}
+.section-head__title{
+  margin:0;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 4.4vw, 58px);
+  font-weight:700; line-height:1.15;
+  text-shadow: 0 2px 34px oklch(0.13 0.012 285 / .9);
+}
+
+/* ═══════════════ 6. 项目区：滚动驱动的螺旋舞台 ═══════════════ */
+.projects{ position:relative; }
+.track{ position:relative; }
+.stage{ position:relative; }
+
+.is-animated .track{ height:340vh; }
+.is-animated .stage{
+  position:sticky; top:0;
+  height:100vh; height:100svh;
+  overflow:hidden;
+}
+
+/* —— 默认（移动端 / 减少动效）：正常文档流 + 逐个淡入 —— */
+.cards{
+  display:grid; gap:20px;
+  grid-template-columns: 1fr;
+  padding: 0 var(--pad) clamp(40px, 8vh, 90px);
+  max-width:1180px; margin:0 auto;
+}
+@media (min-width:620px){ .cards{ grid-template-columns: repeat(2, 1fr); } }
+
+.cards .card{
+  opacity:0;
+  transform: translateY(22px);
+  transition: opacity .6s ease, transform .6s var(--ease-out);
+}
+.cards .card.in{ opacity:1; transform:none; }
+
+/* —— 动画模式：绝对定位，逐帧由 JS 写入 transform —— */
+.is-animated .cards{
+  display:block; position:relative;
+  width:100%; height:100%;
+  padding:0; max-width:none;
+}
+/* 只覆盖定位与显隐，绝不动 .card 自身的 padding */
+.is-animated .cards .card,
+.is-animated .cards .card.in{
+  position:absolute; left:0; top:0;
+  margin:0;
+  opacity:0; transform:none; transition:none;
+  will-change: transform, opacity;
+}
+
+/* ═══════════════ 7. 项目卡片 ═══════════════ */
+.card{
+  display:flex; flex-direction:column; gap:13px;
+  padding:12px;
+  background: var(--surface);
+  border:1px solid var(--border);
+  border-radius:18px;
+  box-shadow: 0 20px 44px -32px oklch(0 0 0 / .95);
+}
+
+/* —— 图片区：卡片内唯一的链接 —— */
+.card__media{
+  position:relative; display:block; width:100%;
+  aspect-ratio: 16 / 10;
+  border:1px solid var(--border);
+  border-radius:11px;
+  overflow:hidden;
+  background: var(--bg);
+  color:inherit; text-decoration:none;
+  transition: border-color .18s ease, box-shadow .22s ease;
+}
+a.card__media{ cursor:pointer; }
+a.card__media:hover{
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px oklch(0.87 0.270 132 / .28),
+              0 20px 46px -26px oklch(0.87 0.270 132 / .40);
+}
+a.card__media:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; }
+.card__media.is-disabled{ cursor:not-allowed; }
+
+.card__media img{
+  display:block; width:100%; height:100%;
+  object-fit:cover;
+  transition: transform .3s var(--ease-out), filter .3s ease;
+}
+a.card__media:hover img{ transform: scale(1.03); }
+a.card__media:active img{ transform: scale(0.985); transition-duration:.1s; }
+.card__media.is-disabled img{ filter: saturate(.5) brightness(.78); }
+
+.card__no,.card__go,.card__soon{
+  position:absolute; bottom:10px;
+  font-family: var(--font-mono);
+  background: oklch(0.13 0.012 285 / .90);
+  border:1px solid oklch(1 0 0 / .10);
+  border-radius:7px;
+}
+.card__no{
+  left:10px; padding:4px 8px;
+  font-size:10.5px; letter-spacing:.14em;
+  color: var(--fg);
+}
+.card__go{
+  right:10px; width:26px; height:26px;
+  display:grid; place-items:center;
+  font-size:13px; line-height:1;
+  color: var(--muted);
+  transition: color .18s ease, border-color .18s ease, transform .18s ease;
+}
+a.card__media:hover .card__go{
+  color: var(--accent);
+  border-color: oklch(0.87 0.270 132 / .55);
+  transform: translate(1px,-1px);
+}
+.card__soon{
+  right:10px; padding:5px 9px;
+  font-size:9.5px; letter-spacing:.14em;
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+/* —— 文字区：纯文本，任何状态都不变色、不上浮、无手型光标 —— */
+.card__body{ display:flex; flex-direction:column; padding:1px 6px 6px; }
+.card__title{
+  margin:0;
+  font-family: var(--font-display);
+  font-size: clamp(17px, 1.5vw, 21px);
+  font-weight:700; line-height:1.35; letter-spacing:0;
+  color: var(--fg);
+}
+.card__title-en{
+  margin:3px 0 0;
+  font-family: var(--font-mono);
+  font-size:10.5px; letter-spacing:.11em; text-transform:uppercase;
+  color: var(--muted);
+}
+.card__desc{
+  margin:9px 0 0;
+  font-size:13.5px; line-height:1.75;
+  color: var(--fg-2);
+}
+.card__tags{
+  display:flex; flex-wrap:wrap; gap:6px;
+  margin:12px 0 0; padding:0; list-style:none;
+}
+.card__tags li{
+  font-family: var(--font-mono);
+  font-size:9.5px; letter-spacing:.13em;
+  color: var(--muted);
+  border:1px solid var(--border);
+  border-radius:5px;
+  padding:3px 7px;
+}
+
+/* ═══════════════ 8. 收尾 ═══════════════ */
+.contact{
+  position:relative;
+  min-height:88vh;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  text-align:center;
+  padding: clamp(70px, 14vh, 150px) var(--pad) clamp(24px, 4vh, 44px);
+}
+.contact__veil{
+  position:absolute; inset:0; z-index:0;
+  background:
+    radial-gradient(54% 48% at 50% 40%,
+      oklch(0.13 0.012 285 / .88) 0%,
+      oklch(0.13 0.012 285 / .56) 56%,
+      oklch(0.13 0.012 285 / 0) 100%),
+    linear-gradient(to bottom,
+      oklch(0.13 0.012 285 / 0) 52%,
+      oklch(0.13 0.012 285 / .90) 100%);
+  pointer-events:none;
+}
+.contact__inner{ position:relative; z-index:1; max-width:640px; }
+.contact__kicker{
+  margin:0 0 12px;
+  font-family: var(--font-mono);
+  font-size:11px; letter-spacing:.34em; text-indent:.34em; text-transform:uppercase;
+  color: var(--muted);
+}
+.contact__title{
+  margin:0;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4vw, 52px);
+  font-weight:700; line-height:1.2;
+}
+.contact__text{
+  margin:18px 0 0;
+  font-size:15px; line-height:1.85;
+  color: var(--fg-2);
+}
+.contact__link{
+  display:inline-block;
+  margin-top:28px;
+  padding:13px 24px;
+  min-height:44px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  font-family: var(--font-mono);
+  font-size:12px; letter-spacing:.1em; text-indent:.1em;
+  color: var(--fg);
+  text-decoration:none;
+  background: oklch(0.20 0.016 285 / .62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: border-color .18s ease, background-color .18s ease, transform .18s ease;
+}
+.contact__link:hover{
+  border-color: var(--accent);
+  background: oklch(0.26 0.016 285 / .82);   /* 背景提亮，前景保持 --fg，对比度不降 */
+  transform: translateY(-2px);
+}
+.contact__link:active{ transform: translateY(0); }
+
+.footer{
+  position:relative; z-index:1;
+  margin-top: clamp(52px, 9vh, 104px);
+  width:100%; max-width:1180px;
+  display:flex; flex-wrap:wrap; gap:8px 20px;
+  justify-content:space-between; align-items:baseline;
+  font-family: var(--font-mono);
+  font-size:10.5px; letter-spacing:.13em; text-transform:uppercase;
+  color: var(--muted);
+}
+.footer p{ margin:0; }
+
+/* ═══════════════ 9. 减少动效 ═══════════════ */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    transition-delay:0ms !important;
+  }
+  .hero__scroll-in{ animation:none; opacity:.62; }
+  .cards .card{ opacity:1; transform:none; }
+  .contact__link:hover{ transform:none; }
+}
+
+/* ═══════════════ 10. 窄屏微调 ═══════════════ */
+@media (max-width: 619px){
+  .hero__tagline{ letter-spacing:.16em; text-indent:.16em; line-height:1.9; }
+  .progress{ display:none; }
+  .card__desc{ font-size:13px; }
+  .contact__text{ font-size:14.5px; }
+}
+</style>
+</head>
+
+<body>
+<canvas id="gl" data-od-id="gl-canvas" aria-hidden="true"></canvas>
+
+<div class="hud" id="fps" aria-hidden="true">
+  <span class="dot"></span><span id="fpsText">WebGL2 · 启动中</span>
+</div>
+<div class="hud progress" aria-hidden="true"><span class="progress__bar" id="progressBar"></span></div>
+
+<div class="page">
+
+  <!-- ── 阶段 0 / 1：入场爆发 → 定格 ── -->
+  <section class="hero" id="hero" data-od-id="hero">
+    <div class="hero__veil" aria-hidden="true"></div>
+    <div class="hero__inner">
+      <p class="hero__kicker" data-reveal style="--d:1000ms" data-od-id="hero-kicker">Kanjyo Hirako</p>
+      <h1 class="hero__name" data-reveal style="--d:1120ms" data-od-id="hero-name">优一</h1>
+      <p class="hero__motto" data-reveal style="--d:1320ms" data-od-id="hero-motto">「舍弃个性与死亡无异」</p>
+      <p class="hero__tagline" data-reveal style="--d:1480ms" data-od-id="hero-tagline">Creative Developer · Vue Enthusiast · Design Maker</p>
+    </div>
+    <p class="hero__scroll" data-reveal style="--d:1900ms" aria-hidden="true" data-od-id="hero-scroll">
+      <span class="hero__scroll-in">↓ Scroll to explore</span>
+    </p>
+  </section>
+
+  <!-- ── 阶段 2 / 3：逆时针螺旋展开 → 点击图片直达外站 ── -->
+  <section class="projects" id="projects" data-od-id="projects">
+    <header class="section-head">
+      <p class="section-head__kicker">Selected Works</p>
+      <h2 class="section-head__title" data-od-id="projects-title">项目作品</h2>
+    </header>
+    <div class="track" id="track">
+      <div class="stage" id="stage">
+        <div class="cards" id="cards"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 阶段 4：收尾 ── -->
+  <section class="contact" id="contact" data-od-id="contact">
+    <div class="contact__veil" aria-hidden="true"></div>
+    <div class="contact__inner">
+      <p class="contact__kicker">Get in touch</p>
+      <h2 class="contact__title" data-od-id="contact-title">保持联系</h2>
+      <p class="contact__text">想聊聊项目、交流想法，或者只是打个招呼 —— GitHub 是我目前公开的联系入口。</p>
+      <a class="contact__link" href="https://github.com/kanjyo-hirako" target="_blank" rel="noopener noreferrer" data-od-id="contact-github">github.com/kanjyo-hirako ↗</a>
+    </div>
+    <footer class="footer">
+      <p>© <span id="year">2026</span> 优一 · Kanjyo Hirako</p>
+      <p>WebGL2 · 单文件构建 · 无外部依赖</p>
+    </footer>
+  </section>
+
+</div>
+
+<script type="text/javascript">
+(() => {
+  'use strict';
+
+  /* ══════════ 0. 项目数据（结构已为 v2 站内详情页预留 detailPage） ══════════ */
+  const PROJECTS = [
+    { id:'01', file:'assets/01.png', titleZh:'GitHub 主页', titleEn:'GitHub Profile',
+      descZh:'个人技术主页与开源空间', tags:['GITHUB','PROFILE'],
+      url:'https://github.com/kanjyo-hirako', detailPage:null },
+
+    { id:'02', file:'assets/02.png', titleZh:'网站收藏空间', titleEn:'Website Collection Space',
+      descZh:'精选优质网站的收藏与导航平台', tags:['VUE','CURATION'],
+      url:'https://website-collection-space.vercel.app/', detailPage:null },
+
+    { id:'03', file:'assets/03.png', titleZh:'用户中心', titleEn:'User Center',
+      descZh:'全栈用户管理与认证系统', tags:['VUE','AUTH','CRUD'],
+      url:'https://kanjyo-hirako-user-center.vercel.app/', detailPage:null },
+
+    { id:'04', file:'assets/04.png', titleZh:'智能旅游助手', titleEn:'AI Travel Agent',
+      descZh:'AI 驱动的智能行程规划与景点推荐', tags:['VUE','AI','MOBILE'],
+      url:'https://travel-agent-two-lovat.vercel.app/', detailPage:null },
+
+    { id:'05', file:'assets/05.png', titleZh:'音乐番茄钟', titleEn:'Music Pomodoro',
+      descZh:'沉浸式音乐番茄钟，专注与呼吸的空间', tags:['VUE','AUDIO','MOTION'],
+      url:null, detailPage:null },
+
+    { id:'06', file:'assets/06.png', titleZh:'实验室预约系统', titleEn:'Lab Reservation System',
+      descZh:'校园实验室智能预约与管理平台', tags:['VUE','SCHEDULING'],
+      url:null, detailPage:null }
+  ];
+  const TOTAL = String(PROJECTS.length).padStart(2, '0');
+
+  /* ══════════ 1. 工具 ══════════ */
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const lerp  = (a, b, t) => a + (b - a) * t;
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+  const $ = id => document.getElementById(id);
+
+  const canvas      = $('gl');
+  const cardsHost   = $('cards');
+  const stage       = $('stage');
+  const track       = $('track');
+  const fpsText     = $('fpsText');
+  const progressBar = $('progressBar');
+  const rmQuery     = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  const SCROLL_KEY = 'kanjyo:portfolio:scroll';
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+  /* ══════════ 2. 构建卡片 DOM ══════════
+     关键：<a> 只包住图片区（含编号与 ↗），中文名 / 英文名 / 描述 / 标签一律纯文本 */
+  const cards = PROJECTS.map(p => {
+    const article = document.createElement('article');
+    article.className = 'card';
+    article.setAttribute('data-od-id', 'project-card-' + p.id);
+
+    const media = document.createElement(p.url ? 'a' : 'div');
+    media.className = 'card__media' + (p.url ? '' : ' is-disabled');
+    media.setAttribute('data-od-id', 'project-media-' + p.id);
+
+    if (p.url){
+      media.href = p.url;
+      media.target = '_blank';
+      media.rel = 'noopener noreferrer';
+      media.setAttribute('aria-label', '在新标签页打开 ' + p.titleZh);
+    } else {
+      media.setAttribute('aria-disabled', 'true');
+    }
+
+    const img = document.createElement('img');
+    img.src = p.file;
+    img.alt = p.titleZh + ' 项目截图';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.draggable = false;
+    media.appendChild(img);
+
+    const no = document.createElement('span');
+    no.className = 'card__no';
+    no.textContent = p.id + ' / ' + TOTAL;
+    media.appendChild(no);
+
+    const mark = document.createElement('span');
+    if (p.url){
+      mark.className = 'card__go';
+      mark.setAttribute('aria-hidden', 'true');
+      mark.textContent = '↗';
+    } else {
+      mark.className = 'card__soon';
+      mark.textContent = 'COMING SOON';
+    }
+    media.appendChild(mark);
+    article.appendChild(media);
+
+    const body = document.createElement('div');
+    body.className = 'card__body';
+
+    const h3 = document.createElement('h3');
+    h3.className = 'card__title';
+    h3.textContent = p.titleZh;
+
+    const en = document.createElement('p');
+    en.className = 'card__title-en';
+    en.textContent = p.titleEn;
+
+    const desc = document.createElement('p');
+    desc.className = 'card__desc';
+    desc.textContent = p.descZh;
+
+    const tags = document.createElement('ul');
+    tags.className = 'card__tags';
+    p.tags.forEach(t => {
+      const li = document.createElement('li');
+      li.textContent = t;
+      tags.appendChild(li);
+    });
+
+    body.append(h3, en, desc, tags);
+    article.appendChild(body);
+    cardsHost.appendChild(article);
+    return article;
+  });
+
+  /* ══════════ 3. 布局：计算网格槽位 ══════════ */
+  let animated = null;
+  let slots = [];
+  let stageSize = { w: 0, h: 0 };
+
+  function measureLayout(){
+    const n = cards.length;
+    const stageW = stage.clientWidth;
+    const stageH = stage.clientHeight;
+    const cols = stageW >= 1040 ? 3 : 2;
+    const rows = Math.ceil(n / cols);
+    const GAP  = stageW >= 1040 ? 22 : 18;
+    const PAD  = stageW >= 1040 ? 56 : 30;
+    const availW = stageW - PAD * 2;
+    const availH = stageH - 96;              // 顶部给状态徽标留呼吸
+
+    const gapW = GAP * (cols - 1);
+    const gapH = GAP * (rows - 1);
+
+    let w = Math.min((availW - gapW) / cols, 430);
+    let cardH = 0;
+
+    // 逐次收紧，直到整块网格装进舞台
+    for (let i = 0; i < 6; i++){
+      cards.forEach(c => { c.style.width = w + 'px'; c.style.height = 'auto'; });
+      cardH = Math.max.apply(null, cards.map(c => c.offsetHeight));
+      const totalH = rows * cardH + gapH;
+      if (totalH <= availH) break;
+      w *= Math.sqrt(availH / totalH) * 0.985;
+    }
+    cards.forEach(c => { c.style.width = w + 'px'; c.style.height = cardH + 'px'; });
+
+    const totalW = cols * w + gapW;
+    const totalH = rows * cardH + gapH;
+    const originX = (stageW - totalW) / 2;
+    const originY = (stageH - totalH) / 2 + 14;
+
+    slots = cards.map((_, i) => ({
+      x: originX + (i % cols) * (w + GAP),
+      y: originY + Math.floor(i / cols) * (cardH + GAP)
+    }));
+    stageSize = { w: stageW, h: stageH };
+  }
+
+  function clearCardStyles(){
+    cards.forEach(c => {
+      c.style.width = '';
+      c.style.height = '';
+      c.style.transform = '';
+      c.style.opacity = '';
+      c.style.visibility = '';
+      c.__hidden = false;
+    });
+  }
+
+  /* ══════════ 4. 逆时针螺旋 ══════════ */
+  const STAGGER = 0.12;
+  const SPAN = 1 - STAGGER * (cards.length - 1);
+
+  function cardTransform(i, progress, maxR){
+    const p = clamp((progress - i * STAGGER) / SPAN, 0, 1);
+    const e = easeOutCubic(p);
+
+    // 逆时针：极角递减（屏幕 y 轴向下，负角 = 视觉上的逆时针）
+    const angle  = -p * Math.PI * 1.5;         // 盘旋 270°
+    const radius = lerp(maxR, 0, e);
+
+    return {
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+      scale:  lerp(0.32, 1, e),
+      rotate: lerp(24, 0, e),                  // 逆向回正
+      opacity: clamp((p - 0.10) / 0.30, 0, 1)
+    };
+  }
+
+  function applyCards(progress){
+    const maxR = Math.max(stageSize.w, stageSize.h) * 0.95;
+
+    cards.forEach((el, i) => {
+      const t = cardTransform(i, progress, maxR);
+      const s = slots[i];
+
+      el.style.transform =
+        'translate3d(' + (s.x + t.x).toFixed(2) + 'px,' + (s.y + t.y).toFixed(2) + 'px,0)' +
+        ' scale(' + t.scale.toFixed(4) + ')' +
+        ' rotate(' + t.rotate.toFixed(3) + 'deg)';
+      el.style.opacity = t.opacity.toFixed(3);
+
+      // 只在跨阈值时改 visibility：省样式重算，同时把未出现的卡片移出 Tab 序列
+      const hidden = t.opacity < 0.02;
+      if (hidden !== el.__hidden){
+        el.__hidden = hidden;
+        el.style.visibility = hidden ? 'hidden' : 'visible';
+      }
+    });
+  }
+
+  /* ══════════ 5. 模式：螺旋舞台 / 文档流 ══════════ */
+  const wantsAnimated = () => !rmQuery.matches && window.innerWidth >= 880;
+  let io = null;
+
+  function startReveal(){
+    if (io){ io.disconnect(); io = null; }
+
+    if (!('IntersectionObserver' in window)){
+      cards.forEach(c => c.classList.add('in'));
+      return;
+    }
+    io = new IntersectionObserver((entries, obs) => {
+      entries.forEach(en => {
+        if (en.isIntersecting){ en.target.classList.add('in'); obs.unobserve(en.target); }
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+    cards.forEach(c => { c.classList.remove('in'); io.observe(c); });
+  }
+
+  function setMode(){
+    const next = wantsAnimated();
+    if (next === animated) return;
+    animated = next;
+
+    document.body.classList.toggle('is-animated', animated);
+    cardsHost.setAttribute('data-mode', animated ? 'spiral' : 'flow');
+
+    if (animated){
+      if (io){ io.disconnect(); io = null; }
+      cards.forEach(c => c.classList.remove('in'));
+      measureLayout();
+      applyCards(scrollP);
+    } else {
+      clearCardStyles();
+      startReveal();
+      if (rmQuery.matches) cards.forEach(c => c.classList.add('in'));
+    }
+  }
+
+  /* ══════════ 6. WebGL：逆时针涡旋极光场 ══════════ */
+  const SHADER_BODY = `
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_entry;
+uniform float u_scroll;
+uniform vec2  u_focus;
+uniform float u_focusAmt;
+uniform float u_dim;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }
+
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i),                 hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p){
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++){ v += a * noise(p); p = p * 2.03 + 1.7; a *= 0.5; }
+  return v;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / u_res.y;
+
+  /* 入场爆发：噪声场自中心放大展开 */
+  float e = u_entry * u_entry * (3.0 - 2.0 * u_entry);
+  float zoom = mix(0.14, 1.0, e);
+  vec2 p = uv / max(zoom, 0.001);
+
+  /* 点击聚光：噪声场向被点击的图片汇聚 */
+  p = mix(p, u_focus, u_focusAmt * 0.30);
+
+  /* 滚动：涡旋中心缓慢上移，让出下方内容 */
+  p.y += u_scroll * 0.42;
+  p /= mix(1.0, 1.16, u_scroll);
+
+  /* 逆时针涡旋：极角随时间递减 */
+  float rad = length(p) + 0.001;
+  float ang = atan(p.y, p.x) - u_time * 0.085 - rad * 1.25;
+
+  vec2 sp = vec2(ang * 0.85, rad * 1.6 - u_time * 0.05);
+  vec2 q  = vec2(fbm(sp * 1.5 + 1.7), fbm(sp * 1.5 + 5.2));
+  vec2 rr = vec2(fbm(sp * 2.2 + q * 1.5 + 0.9), fbm(sp * 2.2 + q * 1.5 + 4.3));
+  float f = fbm(sp * 1.8 + rr * 1.3);
+
+  vec3 col = mix(vec3(0.016, 0.019, 0.040), vec3(0.045, 0.070, 0.185),
+                 clamp(f * f * 2.1, 0.0, 1.0));
+  vec3 lime = vec3(0.388, 0.996, 0.075);
+
+  col += lime * pow(clamp(length(rr) - 0.30, 0.0, 1.0), 2.0) * 0.50;
+  col += vec3(0.28, 0.40, 1.0) * pow(clamp(q.y, 0.0, 1.0), 3.0) * 0.38;
+
+  /* 螺旋臂：与卡片同向的逆时针亮带 */
+  float arm = 0.5 + 0.5 * sin(ang * 2.0 + rad * 9.0 - u_time * 0.5);
+  col += lime * pow(arm, 9.0) * 0.15 * (1.0 - smoothstep(0.10, 1.35, rad));
+
+  /* 入场时的中心闪光 */
+  col += lime * exp(-rad * rad * 9.0) * (1.0 - e) * 0.85;
+
+  /* 点击处的聚光高光 */
+  float fd = distance(uv, u_focus);
+  col += lime * exp(-fd * fd * 26.0) * u_focusAmt * 0.55;
+
+  /* 暗角 + 整体压暗：极光是底色，不能压过文字 */
+  col *= 1.0 - smoothstep(0.25, 1.40, length(uv));
+  col *= mix(1.0, 0.32, u_dim);
+
+  col = pow(max(col, 0.0), vec3(1.04));
+
+  /* 抖动，抑制大面积色带 */
+  col += (hash(gl_FragCoord.xy + fract(u_time)) - 0.5) / 255.0;
+
+  outColor = vec4(col, 1.0);
+}`;
+
+  const VERT_300 = `#version 300 es
+in vec2 a_pos;
+void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+  const VERT_100 = `attribute vec2 a_pos;
+void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+  const FRAG_300 = `#version 300 es
+precision highp float;
+out vec4 outColor;
+` + SHADER_BODY;
+
+  const FRAG_100 = `precision highp float;
+#define outColor gl_FragColor
+` + SHADER_BODY;
+
+  let gl = null, isGL2 = false, glReady = false, prog = null;
+  let uRes = null, uTime = null, uEntry = null, uScroll = null,
+      uFocus = null, uFocusAmt = null, uDim = null;
+
+  function compile(type, src){
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+      const log = gl.getShaderInfoLog(sh);
+      gl.deleteShader(sh);
+      throw new Error(log || 'shader compile failed');
+    }
+    return sh;
+  }
+
+  function initGL(){
+    const attrs = {
+      alpha: false, antialias: false, depth: false, stencil: false,
+      premultipliedAlpha: false, preserveDrawingBuffer: false,
+      powerPreference: 'high-performance'
+    };
+
+    gl = canvas.getContext('webgl2', attrs);
+    isGL2 = !!gl;
+    if (!gl) gl = canvas.getContext('webgl', attrs) || canvas.getContext('experimental-webgl', attrs);
+    if (!gl) return false;
+
+    try {
+      prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER,   isGL2 ? VERT_300 : VERT_100));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, isGL2 ? FRAG_300 : FRAG_100));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+        throw new Error(gl.getProgramInfoLog(prog) || 'program link failed');
+      }
+    } catch (err){
+      console.error('[aurora] shader 编译失败：', err);
+      gl = null;
+      return false;
+    }
+
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'a_pos');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+    uRes      = gl.getUniformLocation(prog, 'u_res');
+    uTime     = gl.getUniformLocation(prog, 'u_time');
+    uEntry    = gl.getUniformLocation(prog, 'u_entry');
+    uScroll   = gl.getUniformLocation(prog, 'u_scroll');
+    uFocus    = gl.getUniformLocation(prog, 'u_focus');
+    uFocusAmt = gl.getUniformLocation(prog, 'u_focusAmt');
+    uDim      = gl.getUniformLocation(prog, 'u_dim');
+    return true;
+  }
+
+  function resizeCanvas(){
+    if (!gl) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);   // DPR 上限 2
+    const w = Math.max(1, Math.floor(canvas.clientWidth  * dpr));
+    const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+    if (w === canvas.width && h === canvas.height) return;
+    canvas.width = w;
+    canvas.height = h;
+    gl.viewport(0, 0, w, h);
+  }
+
+  /* 屏幕坐标 → shader 的 uv 空间（以画布高度归一化，y 轴向上） */
+  function toUV(clientX, clientY){
+    return [
+      (clientX - window.innerWidth  / 2) / window.innerHeight,
+      (window.innerHeight / 2 - clientY) / window.innerHeight
+    ];
+  }
+
+  /* ══════════ 7. 状态 ══════════ */
+  let scrollP = 0;      // 螺旋进度 0→1
+  let docP = 0;         // 整页进度 0→1
+  let entryP = 0;       // 入场爆发 0→1
+  let entryT0 = 0;
+  let entryOn = false;
+  let focus = [0, 0];
+  let focusAmt = 0;
+  let focusT0 = 0;
+  let needRead = true;
+  let resizePending = false;
+  let savedProgress = -1;
+  let checkedFirstFrame = false;
+  let stillSig = '';
+  const FOCUS_MS = 420;
+
+  /* ══════════ 8. 滚动读取（读在前，写在后） ══════════ */
+  function readScroll(){
+    const vh = window.innerHeight;
+
+    if (animated){
+      const total = track.offsetHeight - vh;
+      scrollP = total > 0 ? clamp(-track.getBoundingClientRect().top / total, 0, 1) : 1;
+    } else {
+      scrollP = 1;
+    }
+
+    const docTotal = document.documentElement.scrollHeight - vh;
+    docP = docTotal > 0 ? clamp(window.scrollY / docTotal, 0, 1) : 0;
+    needRead = false;
+  }
+
+  let saveTimer = 0;
+  function onScroll(){
+    needRead = true;
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(() => {
+      try { localStorage.setItem(SCROLL_KEY, String(Math.round(window.scrollY))); } catch (_){}
+    }, 180);
+  }
+
+  /* ══════════ 9. 点击聚光 ══════════ */
+  cardsHost.addEventListener('click', ev => {
+    const media = ev.target.closest && ev.target.closest('.card__media');
+    if (!media || media.classList.contains('is-disabled')) return;
+    const r = media.getBoundingClientRect();
+    focus = toUV(r.left + r.width / 2, r.top + r.height / 2);
+    focusT0 = performance.now();
+  }, true);
+
+  /* ══════════ 10. 入场 ══════════ */
+  const ENTRY_MS = 1750;
+
+  function skipEntry(){
+    entryOn = false;
+    entryP = 1;
+    document.body.classList.add('is-ready', 'no-entry');
+  }
+
+  function beginEntry(){
+    if (rmQuery.matches){ skipEntry(); return; }
+    entryOn = true;
+    entryP = 0;
+    entryT0 = performance.now();
+    requestAnimationFrame(() => document.body.classList.add('is-ready'));
+  }
+
+  /* ══════════ 11. 主循环 ══════════ */
+  let frames = 0, fpsAcc = 0, fpsLast = 0;
+
+  function frame(now){
+    if (resizePending){
+      resizePending = false;
+      setMode();
+      if (animated) measureLayout();
+      if (glReady) resizeCanvas();   // 只在尺寸变化时读一次布局，避免逐帧回流
+      needRead = true;
+    }
+    if (needRead) readScroll();
+
+    // 入场爆发
+    if (entryOn){
+      const k = clamp((now - entryT0) / ENTRY_MS, 0, 1);
+      entryP = 1 - Math.pow(1 - k, 3);
+      if (k >= 1){ entryP = 1; entryOn = false; }
+    }
+
+    // 点击聚光脉冲：前 22% 起，其余落下，合计 420ms
+    if (focusT0){
+      const k = (now - focusT0) / FOCUS_MS;
+      focusAmt = k >= 1 ? 0 : (k < 0.22 ? k / 0.22 : 1 - (k - 0.22) / 0.78);
+      if (k >= 1) focusT0 = 0;
+    }
+
+    if (animated) applyCards(scrollP);
+
+    const p = Math.round(docP * 1000) / 1000;
+    if (p !== savedProgress){ savedProgress = p; progressBar.style.transform = 'scaleY(' + p + ')'; }
+
+    if (glReady){
+      const still = rmQuery.matches;
+      const t = still ? 12.0 : now / 1000;
+      const dim = clamp(0.22 + 0.30 * entryP + 0.22 * scrollP, 0, 0.80);
+      const sig = still ? (entryP + '|' + scrollP + '|' + focusAmt + '|' + dim + '|' + canvas.width + 'x' + canvas.height) : '';
+
+      // 减少动效时画面是静止的，只在参数变化时重绘，不空转 GPU
+      if (!still || sig !== stillSig){
+        stillSig = sig;
+        gl.uniform2f(uRes, canvas.width, canvas.height);
+        gl.uniform1f(uTime, t);
+        gl.uniform1f(uEntry, entryP);
+        gl.uniform1f(uScroll, scrollP);
+        gl.uniform2f(uFocus, focus[0], focus[1]);
+        gl.uniform1f(uFocusAmt, focusAmt);
+        gl.uniform1f(uDim, dim);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+        if (!checkedFirstFrame){
+          checkedFirstFrame = true;
+          const err = gl.getError();
+          if (err !== gl.NO_ERROR) console.warn('[aurora] 首帧 GL 错误码：', err);
+        }
+      }
+
+      frames++; fpsAcc += now - fpsLast; fpsLast = now;
+      if (fpsAcc > 640){
+        const fps = Math.round(frames * 1000 / fpsAcc);
+        const label = (isGL2 ? 'WebGL2' : 'WebGL1') + ' · ' + (still ? '静态' : fps + ' FPS');
+        if (fpsText.textContent !== label) fpsText.textContent = label;
+        frames = 0; fpsAcc = 0;
+      }
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  /* ══════════ 12. 启动 ══════════ */
+  function boot(){
+    $('year').textContent = String(new Date().getFullYear());
+
+    if (initGL()){
+      glReady = true;
+      resizeCanvas();
+    } else {
+      glReady = false;
+      document.body.classList.add('no-gl');
+      fpsText.textContent = 'WebGL 不可用 · 已降级为静态背景';
+    }
+
+    setMode();
+    readScroll();
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', () => { resizePending = true; }, { passive: true });
+    if (rmQuery.addEventListener) rmQuery.addEventListener('change', () => { resizePending = true; });
+    document.addEventListener('visibilitychange', () => { needRead = true; });
+
+    // 还原上次滚动位置；有还原则跳过入场动画，直接落到对应阶段
+    let restored = 0;
+    try { restored = parseInt(localStorage.getItem(SCROLL_KEY) || '0', 10) || 0; } catch (_){}
+
+    if (restored > 40){
+      skipEntry();
+      requestAnimationFrame(() => { window.scrollTo(0, restored); needRead = true; });
+    } else {
+      beginEntry();
+    }
+
+    fpsLast = performance.now();
+    requestAnimationFrame(frame);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+</body>
+</html>
