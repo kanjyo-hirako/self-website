@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>优一 · 作品集 — Kanjyo Hirako</title>
+<meta name="description" content="优一（Kanjyo Hirako）的个人项目作品集 —— 六张项目图贴在同一个圆柱面上，随滚动自上而下沿螺旋环绕，从左上角一直转到右下角。">
+<meta name="theme-color" content="#ffffff">
+<!--
+  单文件自包含：零外部请求，零背景层。
+  背景就是纯白（--bg），页面上没有任何东西盖在它上面 —— 主体是纯 CSS 3D 的圆柱体螺旋。
+-->
+<style>
+/* ═══════════════ 1. 设计令牌（浅色 / 纯白） ═══════════════ */
+:root{
+  color-scheme: light;
+
+  /* 先写 hex 兜底，再写 oklch —— 不认识 oklch 的浏览器保留上一行 */
+  --bg:#ffffff;         --bg: oklch(1 0 0);
+  --fg:#16181d;         --fg: oklch(0.20 0.015 265);
+  --fg-2:#4a4d54;       --fg-2: oklch(0.36 0.012 265);
+  --muted:#6b6e75;      --muted: oklch(0.47 0.012 265);
+  --border:#e2e3e6;     --border: oklch(0.90 0.006 265);
+  --accent:#0e7a3c;     --accent: oklch(0.48 0.155 150);
+  --accent-soft:#e8f4ec; --accent-soft: oklch(0.95 0.035 150);
+
+  --font-display: 'Space Grotesk','Segoe UI Variable Display','Segoe UI',system-ui,'PingFang SC','Microsoft YaHei',sans-serif;
+  --font-body: 'Inter',system-ui,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  --font-mono: 'JetBrains Mono','Cascadia Code',ui-monospace,Consolas,monospace;
+
+  --pad: clamp(20px, 4.2vw, 76px);
+  --ease-out: cubic-bezier(.2, 0, 0, 1);
+}
+
+*,*::before,*::after{ box-sizing:border-box; }
+html{ -webkit-text-size-adjust:100%; }
+
+body{
+  margin:0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size:16px;
+  line-height:1.6;
+  /* clip 而非 hidden：hidden 会让 body 变成滚动容器，position:sticky 会失效 */
+  overflow-x:clip;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+p{ text-wrap:pretty; }
+h1,h2,h3{ text-wrap:balance; }
+:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
+
+/* ═══════════════ 2. 页面图层 ═══════════════ */
+/* 背景是纯白（--bg），页面上没有任何背景层 —— 圆柱是唯一的视觉 */
+.page{ position:relative; z-index:2; }
+
+/* ═══════════════ 3. Hero ═══════════════ */
+.hero{
+  position:relative;
+  min-height:100vh; min-height:100svh;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  text-align:center;
+  padding: var(--pad);
+}
+.hero__inner{ display:flex; flex-direction:column; align-items:center; max-width:900px; }
+
+.hero__kicker{
+  display:inline-flex; align-items:center; gap:10px;
+  margin:0 0 clamp(14px, 2.2vw, 26px);
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1vw, 13px);
+  letter-spacing:.4em;
+  text-transform:uppercase;
+  color: var(--accent);
+  /* 行尾字距会让整块视觉偏左半个字距，用负右边距抵回来 */
+  margin-right:-.4em;
+}
+.hero__kicker::before{
+  content:''; flex:none;
+  width:6px; height:6px; border-radius:1px;
+  background: var(--accent);
+}
+.hero__name{
+  margin:0;
+  font-family: var(--font-display);
+  font-size: clamp(64px, 15vw, 196px);
+  line-height:1; font-weight:800; letter-spacing:0;
+}
+.hero__motto{
+  margin: clamp(16px, 2.4vw, 30px) 0 0;
+  font-size: clamp(15px, 1.7vw, 21px);
+  line-height:1.75;
+}
+.hero__tagline{
+  margin: clamp(10px, 1.4vw, 16px) 0 0;
+  font-family: var(--font-mono);
+  font-size: clamp(10px, .92vw, 12px);
+  letter-spacing:.22em; text-indent:.22em;
+  text-transform:uppercase;
+  color: var(--muted);
+}
+.hero__rule{
+  width: clamp(120px, 22vw, 260px);
+  height:1px; margin: clamp(34px, 6vh, 66px) 0 0;
+  background: var(--border);
+}
+.hero__scroll{
+  margin: clamp(16px, 2.6vh, 26px) 0 0;
+  font-family: var(--font-mono);
+  font-size:10.5px; letter-spacing:.3em;
+  text-transform:uppercase;
+  color: var(--muted);
+}
+/* 呼吸动画放在内层，避免与 [data-reveal] 的 transform 互相覆盖 */
+.hero__scroll-in{
+  display:inline-block;
+  margin-right:-.3em;                 /* 同上，抵消行尾字距 */
+  animation: breathe 2.8s var(--ease-out) infinite;
+}
+@keyframes breathe{
+  0%,100%{ opacity:.55; transform: translateY(0); }
+  50%    { opacity:1;   transform: translateY(4px); }
+}
+
+.hero [data-reveal]{
+  opacity:0;
+  transform: translateY(14px);
+  transition: opacity .8s ease, transform .8s var(--ease-out);
+  transition-delay: var(--d, 0ms);
+}
+body.is-ready .hero [data-reveal]{ opacity:1; transform:none; }
+body.no-entry .hero [data-reveal]{ transition:none; }
+
+/* ═══════════════ 4. 章节标题 ═══════════════ */
+.section-head{
+  padding: clamp(80px, 17vh, 180px) var(--pad) clamp(18px, 4vh, 40px);
+  max-width:1240px; margin:0 auto;
+}
+.section-head__kicker{
+  margin:0 0 10px;
+  font-family: var(--font-mono);
+  font-size:11px; letter-spacing:.34em; text-transform:uppercase;
+  color: var(--muted);
+}
+.section-head__title{
+  margin:0;
+  font-family: var(--font-display);
+  font-size: clamp(30px, 4.4vw, 56px);
+  font-weight:700; line-height:1.15;
+}
+.section-head__note{
+  margin: clamp(12px, 2vh, 20px) 0 0;
+  max-width:46ch;
+  font-size:14px; line-height:1.8;
+  color: var(--fg-2);
+}
+
+/* ═══════════════ 5. 圆柱舞台 ═══════════════ */
+.projects{ position:relative; }
+.track{ position:relative; }
+.stage{ position:relative; }
+
+.is-animated .track{ height:320vh; }
+.is-animated .stage{
+  position:sticky; top:0;
+  height:100vh; height:100svh;
+  overflow:hidden;              /* sticky 元素自身裁剪，不影响自身粘性 */
+  perspective: 1400px;          /* 运行时由 JS 按半径重设 */
+  perspective-origin: 50% 50%;
+}
+
+.cylinder{ position:absolute; inset:0; transform-style: preserve-3d; }
+
+/* 卡片贴在圆柱面上：原点落在容器中心，绕柱轴 rotateY，再推出半径 */
+.cylinder .card{
+  position:absolute; left:50%; top:50%;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+/* 圆柱是透明的：背面卡片照样绘制，但不接收点击（由内层白色遮罩压淡） */
+.cylinder .card.is-back{ pointer-events:none; }
+/* 遮罩只能盖住卡片本体，盖不住外部的投影 —— 背面卡片直接把投影去掉，否则会留下一团灰影 */
+.cylinder .card.is-back{ box-shadow:none; }
+
+/* 转到背面时，卡片自己的文字会镜像 —— 那是最扎眼的部分，必须藏掉：
+   标题、描述、标签、编号、↗ 都是清晰的大字号 DOM 文本，镜像后一眼就是 bug。
+   但**截图要留着**：它是背面卡片唯一的颜色来源，也是判断螺旋走向的线索。
+   代价是截图里的字也会镜像 —— 实测 2500px 原图缩到 ~150px 后，
+   里面的标题仍有约 10 设备像素高，读得出来。这个交给下面的 blur 处理。 */
+.cylinder .card.is-back .card__no,
+.cylinder .card.is-back .card__go,
+.cylinder .card.is-back .card__soon,
+.cylinder .card.is-back .card__body{ visibility:hidden; }
+/* 用 visibility 而非 display —— 前者保留占位，卡片高度不会塌 */
+.cylinder .card.is-back .card__media{ border-color: oklch(0.93 0.004 265); }
+/* 白色遮罩会一并抽掉饱和度，这里补一点回来；
+   再叠一层模糊 —— 背面是镜像绘制的，截图里的字（「A space to focus & breathe」之类）
+   在小尺寸下仍然读得出来。模糊保留色块、抹掉字形：留下颜色，不留内容。 */
+.cylinder .card.is-back .card__media img{ filter: blur(4px) saturate(1.25); }
+
+/* —— 静态（窄屏 / 减少动效）：回到正常文档流 —— */
+.cards{
+  display:grid; gap:20px;
+  grid-template-columns: 1fr;
+  padding: 0 var(--pad) clamp(40px, 8vh, 90px);
+  max-width:1240px; margin:0 auto;
+}
+@media (min-width:620px){ .cards{ grid-template-columns: repeat(2, 1fr); } }
+
+.cards .card{
+  position:relative;
+  opacity:0; transform: translateY(20px);
+  transition: opacity .55s ease, transform .55s var(--ease-out);
+}
+.cards .card.in{ opacity:1; transform:none; }
+
+/* ═══════════════ 6. 项目卡片（浅色） ═══════════════ */
+.card{
+  display:flex; flex-direction:column; gap:11px;
+  padding:10px;
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow: 0 1px 2px oklch(0.2 0.02 265 / .05),
+              0 18px 34px -22px oklch(0.2 0.02 265 / .24);
+  transition: box-shadow .3s ease;
+}
+
+/* 深度遮罩：转到侧面的卡片向白底退去，强化体积感 */
+.card__veil{
+  position:absolute; inset:-1px;
+  border-radius:inherit;
+  background:#fff;
+  opacity:0;
+  pointer-events:none;
+  z-index:3;
+}
+
+/* —— 图片区：卡片内唯一的链接 —— */
+.card__media{
+  position:relative; display:block; width:100%;
+  aspect-ratio: 16 / 10;
+  border:1px solid var(--border);
+  border-radius:10px;
+  overflow:hidden;
+  background: oklch(0.97 0.004 265);
+  color:inherit; text-decoration:none;
+  transition: border-color .18s ease, box-shadow .22s ease;
+}
+a.card__media{ cursor:pointer; }
+a.card__media:hover{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+a.card__media:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; }
+.card__media.is-disabled{ cursor:not-allowed; }
+
+.card__media img{
+  display:block; width:100%; height:100%;
+  object-fit:cover;
+  transition: transform .3s var(--ease-out), filter .3s ease;
+}
+a.card__media:hover img{ transform: scale(1.03); }
+a.card__media:active img{ transform: scale(0.985); transition-duration:.1s; }
+.card__media.is-disabled img{ filter: saturate(.45) contrast(.96); }
+
+.card__no,.card__go,.card__soon{
+  position:absolute; bottom:9px;
+  font-family: var(--font-mono);
+  background: oklch(1 0 0 / .93);
+  border:1px solid var(--border);
+  border-radius:6px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.card__no{
+  left:9px; padding:3px 7px;
+  font-size:10px; letter-spacing:.14em;
+  color: var(--fg);
+}
+.card__go{
+  right:9px; width:24px; height:24px;
+  display:grid; place-items:center;
+  font-size:12px; line-height:1;
+  color: var(--muted);
+  transition: color .18s ease, border-color .18s ease, transform .18s ease;
+}
+a.card__media:hover .card__go{
+  color: var(--accent);
+  border-color: var(--accent);
+  transform: translate(1px,-1px);
+}
+.card__soon{
+  right:9px; padding:4px 8px;
+  font-size:9px; letter-spacing:.14em;
+  color: var(--muted);
+}
+
+/* —— 文字区：纯文本，任何状态都不变色、不上浮、无手型光标 —— */
+.card__body{ display:flex; flex-direction:column; padding:0 5px 5px; }
+.card__title{
+  margin:0;
+  font-family: var(--font-display);
+  font-size:16.5px; font-weight:700; line-height:1.35; letter-spacing:0;
+  color: var(--fg);
+}
+.card__title-en{
+  margin:3px 0 0;
+  font-family: var(--font-mono);
+  font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+  color: var(--muted);
+}
+.card__desc{
+  margin:8px 0 0;
+  font-size:12.5px; line-height:1.7;
+  color: var(--fg-2);
+}
+.card__tags{
+  display:flex; flex-wrap:wrap; gap:5px;
+  margin:10px 0 0; padding:0; list-style:none;
+}
+.card__tags li{
+  font-family: var(--font-mono);
+  font-size:9px; letter-spacing:.12em;
+  color: var(--muted);
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:2px 6px;
+}
+
+/* ═══════════════ 7. 收尾 ═══════════════ */
+.contact{
+  position:relative;
+  min-height:82vh;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  text-align:center;
+  padding: clamp(70px, 14vh, 150px) var(--pad) clamp(24px, 4vh, 44px);
+}
+.contact__inner{ max-width:620px; }
+.contact__kicker{
+  margin:0 0 12px;
+  font-family: var(--font-mono);
+  font-size:11px; letter-spacing:.34em; text-indent:.34em; text-transform:uppercase;
+  color: var(--muted);
+}
+.contact__title{
+  margin:0;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 3.8vw, 50px);
+  font-weight:700; line-height:1.2;
+}
+.contact__text{
+  margin:18px 0 0;
+  font-size:15px; line-height:1.85;
+  color: var(--fg-2);
+}
+.contact__link{
+  display:inline-block;
+  margin-top:28px;
+  padding:13px 24px;
+  min-height:44px;
+  border:1px solid var(--border);
+  border-radius:999px;
+  font-family: var(--font-mono);
+  font-size:12px; letter-spacing:.1em;
+  color: var(--fg);
+  text-decoration:none;
+  transition: border-color .18s ease, background-color .18s ease;
+}
+.contact__link:hover{
+  border-color: var(--accent);
+  background: var(--accent-soft);   /* 只动背景，前景不变 → 对比度只升不降 */
+}
+
+.footer{
+  margin-top: clamp(52px, 9vh, 100px);
+  width:100%; max-width:1240px;
+  display:flex; flex-wrap:wrap; gap:8px 20px;
+  justify-content:space-between; align-items:baseline;
+  font-family: var(--font-mono);
+  font-size:10.5px; letter-spacing:.13em; text-transform:uppercase;
+  color: var(--muted);
+}
+.footer p{ margin:0; }
+
+/* ═══════════════ 8. 减少动效 ═══════════════ */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:.001ms !important;
+    transition-delay:0ms !important;
+  }
+  .hero__scroll-in{ animation:none; opacity:.65; }
+  .cards .card{ opacity:1; transform:none; }
+  .card__veil{ display:none; }
+}
+
+/* ═══════════════ 9. 窄屏 ═══════════════ */
+@media (max-width: 619px){
+  .hero__tagline{ letter-spacing:.14em; text-indent:.14em; line-height:1.9; }
+  .card__desc{ font-size:13px; }
+  .contact__text{ font-size:14.5px; }
+}
+</style>
+</head>
+
+<body>
+<div class="page">
+
+  <!-- ── Hero ── -->
+  <section class="hero" id="hero" data-od-id="hero">
+    <div class="hero__inner">
+      <p class="hero__kicker" data-reveal style="--d:120ms" data-od-id="hero-kicker">Kanjyo Hirako</p>
+      <h1 class="hero__name" data-reveal style="--d:240ms" data-od-id="hero-name">优一</h1>
+      <p class="hero__motto" data-reveal style="--d:400ms" data-od-id="hero-motto">「舍弃个性与死亡无异」</p>
+      <p class="hero__tagline" data-reveal style="--d:520ms" data-od-id="hero-tagline">Creative Developer · Vue Enthusiast · Design Maker</p>
+      <div class="hero__rule" data-reveal style="--d:640ms" aria-hidden="true"></div>
+      <p class="hero__scroll" data-reveal style="--d:760ms" aria-hidden="true" data-od-id="hero-scroll">
+        <span class="hero__scroll-in">↓ Scroll</span>
+      </p>
+    </div>
+  </section>
+
+  <!-- ── 圆柱螺旋 ── -->
+  <section class="projects" id="projects" data-od-id="projects">
+    <header class="section-head">
+      <p class="section-head__kicker">Selected Works</p>
+      <h2 class="section-head__title" data-od-id="projects-title">项目作品</h2>
+      <p class="section-head__note">八个项目贴在同一条螺旋上，随滚动绕过柱面 —— 从左上角进入，转到右下角离开。</p>
+    </header>
+    <div class="track" id="track">
+      <div class="stage" id="stage">
+        <div class="cylinder" id="cylinder" data-od-id="cylinder"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 收尾 ── -->
+  <section class="contact" id="contact" data-od-id="contact">
+    <div class="contact__inner">
+      <p class="contact__kicker">Get in touch</p>
+      <h2 class="contact__title" data-od-id="contact-title">保持联系</h2>
+      <p class="contact__text">想聊聊项目、交流想法，或者只是打个招呼 —— GitHub 是我目前公开的联系入口。</p>
+      <a class="contact__link" href="https://github.com/kanjyo-hirako" target="_blank" rel="noopener noreferrer" data-od-id="contact-github">github.com/kanjyo-hirako ↗</a>
+    </div>
+    <footer class="footer">
+      <p>© <span id="year">2026</span> 优一 · Kanjyo Hirako</p>
+      <p>纯 CSS 3D · 单文件构建 · 无外部依赖</p>
+    </footer>
+  </section>
+
+</div>
+
+<script type="text/javascript">
+(() => {
+  'use strict';
+
+  /* ══════════ 0. 项目数据 ══════════ */
+  const PROJECTS = [
+    { id:'01', file:'assets/01.png', titleZh:'GitHub 主页', titleEn:'GitHub Profile',
+      descZh:'个人技术主页与开源空间', tags:['GITHUB','PROFILE'],
+      url:'https://github.com/kanjyo-hirako', detailPage:null },
+
+    { id:'02', file:'assets/02.png', titleZh:'网站收藏空间', titleEn:'Website Collection Space',
+      descZh:'精选优质网站的收藏与导航平台', tags:['VUE','CURATION'],
+      url:'https://website-collection-space.vercel.app/', detailPage:null },
+
+    { id:'03', file:'assets/03.png', titleZh:'用户中心', titleEn:'User Center',
+      descZh:'全栈用户管理与认证系统', tags:['VUE','AUTH','CRUD'],
+      url:'https://kanjyo-hirako-user-center.vercel.app/', detailPage:null },
+
+    { id:'04', file:'assets/04.png', titleZh:'智能旅游助手', titleEn:'AI Travel Agent',
+      descZh:'AI 驱动的智能行程规划与景点推荐', tags:['VUE','AI','MOBILE'],
+      url:'https://travel-agent-two-lovat.vercel.app/', detailPage:null },
+
+    { id:'05', file:'assets/05.png', titleZh:'音乐番茄钟', titleEn:'Music Pomodoro',
+      descZh:'沉浸式音乐番茄钟，专注与呼吸的空间', tags:['VUE','AUDIO','MOTION'],
+      url:'https://github.com/kanjyo-hirako/Music-Pomodoro', detailPage:null },
+
+    { id:'06', file:'assets/06.png', titleZh:'实验室预约系统', titleEn:'Lab Reservation System',
+      descZh:'校园实验室智能预约与管理平台', tags:['VUE','SCHEDULING'],
+      url:'https://github.com/kanjyo-hirako/lab-display-screen', detailPage:null },
+
+    { id:'07', file:'assets/07.png', titleZh:'2048 网页游戏', titleEn:'2048 Page Game',
+      descZh:'经典数字合并游戏，键盘与触屏均可操作', tags:['GAME','KEYBOARD','TOUCH'],
+      url:'https://github.com/kanjyo-hirako/2048-Page-Game', detailPage:null },
+
+    { id:'08', file:'assets/08.png', titleZh:'AI 小说转剧本工具', titleEn:'AI Script Converter',
+      descZh:'将中文小说自动转换为结构化 YAML 剧本', tags:['AI','YAML','TOOL'],
+      url:'https://github.com/kanjyo-hirako/AI-Script-Converter', detailPage:null }
+  ];
+  const N = PROJECTS.length;
+  const TOTAL = String(N).padStart(2, '0');
+
+  /* ══════════ 1. 工具 ══════════ */
+  const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const $ = id => document.getElementById(id);
+
+  const cylHost = $('cylinder');
+  const stage   = $('stage');
+  const track   = $('track');
+  const rmQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  const SCROLL_KEY = 'kanjyo:portfolio:scroll';
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+  /* ══════════ 2. 构建卡片（<a> 只包图片，文字区纯文本） ══════════ */
+  const cards = PROJECTS.map(p => {
+    const article = document.createElement('article');
+    article.className = 'card';
+    article.setAttribute('data-od-id', 'project-card-' + p.id);
+
+    const media = document.createElement(p.url ? 'a' : 'div');
+    media.className = 'card__media' + (p.url ? '' : ' is-disabled');
+    media.setAttribute('data-od-id', 'project-media-' + p.id);
+
+    if (p.url){
+      media.href = p.url;
+      media.target = '_blank';
+      media.rel = 'noopener noreferrer';
+      media.setAttribute('aria-label', '在新标签页打开 ' + p.titleZh);
+    } else {
+      media.setAttribute('aria-disabled', 'true');
+    }
+
+    const img = document.createElement('img');
+    img.src = p.file;
+    img.alt = p.titleZh + ' 项目截图';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.draggable = false;
+    media.appendChild(img);
+
+    const no = document.createElement('span');
+    no.className = 'card__no';
+    no.textContent = p.id + ' / ' + TOTAL;
+    media.appendChild(no);
+
+    const mark = document.createElement('span');
+    if (p.url){
+      mark.className = 'card__go';
+      mark.setAttribute('aria-hidden', 'true');
+      mark.textContent = '↗';
+    } else {
+      mark.className = 'card__soon';
+      mark.textContent = 'COMING SOON';
+    }
+    media.appendChild(mark);
+    article.appendChild(media);
+
+    const body = document.createElement('div');
+    body.className = 'card__body';
+
+    const h3 = document.createElement('h3');
+    h3.className = 'card__title';
+    h3.textContent = p.titleZh;
+
+    const en = document.createElement('p');
+    en.className = 'card__title-en';
+    en.textContent = p.titleEn;
+
+    const desc = document.createElement('p');
+    desc.className = 'card__desc';
+    desc.textContent = p.descZh;
+
+    const tags = document.createElement('ul');
+    tags.className = 'card__tags';
+    p.tags.forEach(t => {
+      const li = document.createElement('li');
+      li.textContent = t;
+      tags.appendChild(li);
+    });
+
+    body.append(h3, en, desc, tags);
+    article.appendChild(body);
+
+    const veil = document.createElement('span');
+    veil.className = 'card__veil';
+    veil.setAttribute('aria-hidden', 'true');
+    article.appendChild(veil);
+    article.__veil = veil;
+
+    cylHost.appendChild(article);
+    return article;
+  });
+
+  /* ══════════ 3. 圆柱几何 ══════════ */
+  const STEP = Math.PI / 4;    // 相邻卡片绕柱 45°；8 张正好围满一圈
+  const SPAN = N - 1;          // 滚动行程 = 7 级
+  // 让 s 从 -(N-1)/2 走到 +(N-1)/2 —— 这样每一张卡片都会轮到正前方一次
+  const sAt  = p => (p - 0.5) * SPAN;
+
+  let RADIUS = 430, PITCH = 158;
+  let animated = null;
+  let io = null;
+
+  function measure(){
+    const stageW = stage.clientWidth;
+    const stageH = stage.clientHeight;
+    const limit  = stageH / 2 - 10;          // 上下各留一点余量
+
+    let w = clamp(Math.min(stageW * 0.28, stageH * 0.42), 168, 340);
+    let cardH = 0;
+
+    // 卡片宽度同时决定柱半径与螺旋落差 → 迭代收紧，直到最外侧那张（含柱体背后的幽灵）也装得下
+    for (let k = 0; k < 5; k++){
+      cards.forEach(c => { c.style.width = w + 'px'; });
+      cardH  = Math.max.apply(null, cards.map(c => c.offsetHeight));
+      RADIUS = w / (2 * Math.sin(STEP / 2)); // 弦长 ≈ 卡宽 → 卡片刚好贴满柱面
+      PITCH  = w * 0.26;                     // 每绕一级下降的高度 → 螺旋而非平转
+
+      const f = RADIUS * 3.6;
+      const u = (N - 1) / 2;                 // 柱体最深处那张（现在也会绘制，只是很淡）
+      const sc = f / (f - RADIUS * Math.cos(u * STEP));
+      const span = sc * (u * PITCH + cardH / 2);
+      if (span <= limit) break;
+      w *= Math.max(0.85, limit / span);
+    }
+
+    cards.forEach(c => { c.style.width = w + 'px'; });
+    stage.style.perspective = (RADIUS * 3.6).toFixed(0) + 'px';
+  }
+
+  /* 把第 i 张卡片放到柱面的（角度，高度）上 */
+  function place(i, s){
+    // 索引沿螺旋「递减」：s 增大时，卡片 01 → 02 → … → 08 依次转到正前方
+    const u = (N - 1) / 2 - i + s;   // 沿螺旋的位置（级）
+    const theta = u * STEP;
+    const h = u * PITCH;             // CSS 的 +y 向下：越往后绕 → 越低 → 从左上走到右下
+
+    const el = cards[i];
+    // translate(-50%,-50%) 先把卡片中心对到柱轴上，再推出半径、绕柱旋转、最后升降
+    el.style.transform =
+      'translate3d(0,' + h.toFixed(2) + 'px,0)' +
+      ' rotateY(' + theta.toFixed(5) + 'rad)' +
+      ' translateZ(' + RADIUS.toFixed(2) + 'px)' +
+      ' translate(-50%,-50%)';
+
+    const front = Math.cos(theta);   // 1 = 正对观众，0 = 侧面，-1 = 柱体正后方
+
+    // 圆柱是「透明」的：背面的卡片照样绘制，只用白色遮罩压淡，越靠后越淡。
+    // 遮罩放在卡片内层而不是给元素设 opacity —— opacity < 1 会创建层叠上下文，打乱 3D 排序。
+    // 上限只到 0.60：留 40% 的可见度，背面卡片才留得住颜色，螺旋向下环绕的走向也才看得出来。
+    // 文字镜像的问题交给 CSS 的 blur 处理，不靠加深遮罩。
+    const veilV = clamp((1 - front) * 0.33, 0, 0.60).toFixed(3);
+    if (veilV !== el.__veilV){
+      el.__veilV = veilV;
+      el.__veil.style.opacity = veilV;
+    }
+
+    // 背面的卡片只是视觉回声，不接收点击、也不占用 Tab 位
+    const facing = front > 0.02;
+    if (facing !== el.__facing){
+      el.__facing = facing;
+      el.classList.toggle('is-back', !facing);
+      const link = el.firstElementChild;
+      if (link && link.tagName === 'A'){
+        if (facing) link.removeAttribute('tabindex');
+        else link.setAttribute('tabindex', '-1');
+      }
+    }
+  }
+
+  function placeAll(s){ for (let i = 0; i < N; i++) place(i, s); }
+
+  function clearCardStyles(){
+    cards.forEach(c => {
+      c.style.width = '';
+      c.style.transform = '';
+      c.classList.remove('is-back');
+      const link = c.firstElementChild;
+      if (link && link.tagName === 'A') link.removeAttribute('tabindex');
+      c.__veil.style.opacity = '0';
+      c.__veilV = null;
+      c.__facing = null;
+    });
+    stage.style.perspective = '';
+  }
+
+  /* ══════════ 4. 模式：圆柱 / 文档流 ══════════ */
+  const wantsAnimated = () => !rmQuery.matches && window.innerWidth >= 880;
+
+  function startReveal(){
+    if (io){ io.disconnect(); io = null; }
+    if (!('IntersectionObserver' in window)){
+      cards.forEach(c => c.classList.add('in'));
+      return;
+    }
+    io = new IntersectionObserver((entries, obs) => {
+      entries.forEach(en => {
+        if (en.isIntersecting){ en.target.classList.add('in'); obs.unobserve(en.target); }
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+    cards.forEach(c => { c.classList.remove('in'); io.observe(c); });
+  }
+
+  /* 圆柱模式要把卡片放回 .stage，文档流模式要放回 <section> 里 —— 只改 class 不够 */
+  function setMode(){
+    const next = wantsAnimated();
+    if (next === animated) return;
+    animated = next;
+
+    document.body.classList.toggle('is-animated', animated);
+
+    if (animated){
+      cylHost.className = 'cylinder';
+      stage.appendChild(cylHost);
+      if (io){ io.disconnect(); io = null; }
+      cards.forEach(c => c.classList.remove('in'));
+      measure();
+      placeAll(sAt(scrollP));
+      lastS = sAt(scrollP);
+    } else {
+      clearCardStyles();
+      cylHost.className = 'cards';
+      track.parentNode.insertBefore(cylHost, track);
+      startReveal();
+      if (rmQuery.matches) cards.forEach(c => c.classList.add('in'));
+    }
+    cylHost.setAttribute('data-mode', animated ? 'cylinder' : 'flow');
+  }
+
+  /* ══════════ 5. 状态 ══════════ */
+  let scrollP = 0;
+  let needRead = true;
+  let resizePending = false;
+
+  function readScroll(){
+    if (animated){
+      const total = track.offsetHeight - window.innerHeight;
+      scrollP = total > 0 ? clamp(-track.getBoundingClientRect().top / total, 0, 1) : 1;
+    } else {
+      scrollP = 1;
+    }
+    needRead = false;
+  }
+
+  let saveTimer = 0;
+  function onScroll(){
+    needRead = true;
+    window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(() => {
+      try { localStorage.setItem(SCROLL_KEY, String(Math.round(window.scrollY))); } catch (_){}
+    }, 180);
+  }
+
+  /* ══════════ 6. 入场 ══════════ */
+  const skipEntry = () => document.body.classList.add('is-ready', 'no-entry');
+  const beginEntry = () => requestAnimationFrame(() => document.body.classList.add('is-ready'));
+
+  /* ══════════ 7. 主循环 ══════════ */
+  let lastS = NaN;
+
+  function frame(){
+    if (resizePending){
+      resizePending = false;
+      setMode();
+      if (animated) measure();              // 尺寸变了 → 重新解算柱半径与卡片宽度
+      lastS = NaN;                          // 强制重排一次
+      needRead = true;
+    }
+    if (needRead) readScroll();
+
+    if (animated){
+      const s = sAt(scrollP);
+      // 只有滚动位置真的变了才写 DOM —— 现在没有背景层需要逐帧重绘了
+      if (Math.abs(s - lastS) > 0.0004){ lastS = s; placeAll(s); }
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  /* ══════════ 8. 启动 ══════════ */
+  function boot(){
+    $('year').textContent = String(new Date().getFullYear());
+
+    setMode();
+    readScroll();
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', () => { resizePending = true; }, { passive: true });
+    if (rmQuery.addEventListener) rmQuery.addEventListener('change', () => { resizePending = true; });
+
+    let restored = 0;
+    try { restored = parseInt(localStorage.getItem(SCROLL_KEY) || '0', 10) || 0; } catch (_){}
+
+    if (restored > 40){
+      skipEntry();
+      requestAnimationFrame(() => { window.scrollTo(0, restored); needRead = true; });
+    } else {
+      beginEntry();
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+</body>
+</html>
