@@ -7,8 +7,8 @@
 <meta name="description" content="优一（Kanjyo Hirako）的个人项目作品集 —— 六张项目图贴在同一个圆柱面上，随滚动自上而下沿螺旋环绕，从左上角一直转到右下角。">
 <meta name="theme-color" content="#ffffff">
 <!--
-  单文件自包含：零外部请求，零背景层。
-  背景就是纯白（--bg），页面上没有任何东西盖在它上面 —— 主体是纯 CSS 3D 的圆柱体螺旋。
+  单文件自包含：零外部请求。
+  背景由纯白底与轻量双层网格组成，主体仍是纯 CSS 3D 的圆柱体螺旋。
 -->
 <style>
 /* ═══════════════ 1. 设计令牌（浅色 / 纯白） ═══════════════ */
@@ -23,6 +23,10 @@
   --border:#e2e3e6;     --border: oklch(0.90 0.006 265);
   --accent:#0e7a3c;     --accent: oklch(0.48 0.155 150);
   --accent-soft:#e8f4ec; --accent-soft: oklch(0.95 0.035 150);
+  --grid-minor: rgba(22, 24, 29, .045);
+  --grid-major: rgba(22, 24, 29, .085);
+  --grid-size: 24px;
+  --grid-major-size: 120px;
 
   --font-display: 'Space Grotesk','Segoe UI Variable Display','Segoe UI',system-ui,'PingFang SC','Microsoft YaHei',sans-serif;
   --font-body: 'Inter',system-ui,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
@@ -37,7 +41,19 @@ html{ -webkit-text-size-adjust:100%; }
 
 body{
   margin:0;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(to right, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-minor) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-minor) 1px, transparent 1px);
+  background-size:
+    var(--grid-major-size) var(--grid-major-size),
+    var(--grid-major-size) var(--grid-major-size),
+    var(--grid-size) var(--grid-size),
+    var(--grid-size) var(--grid-size);
+  background-position: left top;
+  background-attachment: fixed;
   color: var(--fg);
   font-family: var(--font-body);
   font-size:16px;
@@ -53,7 +69,7 @@ h1,h2,h3{ text-wrap:balance; }
 :focus-visible{ outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
 
 /* ═══════════════ 2. 页面图层 ═══════════════ */
-/* 背景是纯白（--bg），页面上没有任何背景层 —— 圆柱是唯一的视觉 */
+/* 网格绘制在 body 背景上，不新增覆盖层；内容与卡片仍保持清晰的白色表面 */
 .page{ position:relative; z-index:2; }
 
 /* ═══════════════ 3. Hero ═══════════════ */
@@ -65,7 +81,43 @@ h1,h2,h3{ text-wrap:balance; }
   text-align:center;
   padding: var(--pad);
 }
-.hero__inner{ display:flex; flex-direction:column; align-items:center; max-width:900px; }
+.home-water{
+  position:fixed; inset:0;
+  width:100%; height:100%;
+  display:block;
+  z-index:1;
+  pointer-events:none;
+}
+.home-cursor{
+  --cursor-scale:1;
+  position:fixed; left:0; top:0;
+  width:14px; height:14px;
+  margin:-7px 0 0 -7px;
+  border:1.5px solid rgba(14, 122, 60, .86);
+  border-radius:50%;
+  background:rgba(14, 122, 60, 0);
+  box-shadow:0 0 0 3px rgba(14, 122, 60, .07);
+  opacity:0;
+  z-index:10;
+  pointer-events:none;
+  transform:translate3d(-30px, -30px, 0) scale(var(--cursor-scale));
+  transition:
+    opacity .16s ease,
+    background-color .16s ease,
+    border-color .16s ease,
+    transform .08s ease;
+  will-change:transform, opacity;
+}
+.home-cursor.is-visible{ opacity:.92; }
+.home-cursor.is-pressed{
+  --cursor-scale:.78;
+  border-color:rgba(14, 122, 60, 1);
+  background:rgba(14, 122, 60, .08);
+}
+.hero__inner{
+  position:relative;
+  display:flex; flex-direction:column; align-items:center; max-width:900px;
+}
 
 .hero__kicker{
   display:inline-flex; align-items:center; gap:10px;
@@ -553,6 +605,10 @@ a.card__media:hover .card__go{
   .my-way .distorted-wrapper{ perspective:calc(var(--distortion) * .85em); }
 }
 @media (max-width: 619px){
+  body{
+    --grid-size: 20px;
+    --grid-major-size: 100px;
+  }
   .hero__tagline{ letter-spacing:.14em; text-indent:.14em; line-height:1.9; }
   .card__desc{ font-size:13px; }
   .contact__text{ font-size:14.5px; }
@@ -568,7 +624,7 @@ a.card__media:hover .card__go{
 </style>
 </head>
 
-<body>
+<body data-page="home">
 <div class="page">
 
   <!-- ── Hero ── -->
@@ -643,7 +699,348 @@ a.card__media:hover .card__go{
 (() => {
   'use strict';
 
-  /* ══════════ 0. 项目数据 ══════════ */
+  /* ══════════ 0. 首页光标跟随 ══════════ */
+  function initHomeCursor(){
+    const body = document.body;
+    const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
+    if (body.dataset.page !== 'home' || !finePointer.matches) return;
+
+    const cursor = document.createElement('div');
+    cursor.className = 'home-cursor';
+    cursor.setAttribute('aria-hidden', 'true');
+    body.appendChild(cursor);
+
+    let cursorX = -30;
+    let cursorY = -30;
+    let frameId = 0;
+
+    function placeCursor(){
+      frameId = 0;
+      cursor.style.transform =
+        `translate3d(${cursorX}px, ${cursorY}px, 0) scale(var(--cursor-scale))`;
+    }
+
+    function requestPlacement(){
+      if (!frameId) frameId = requestAnimationFrame(placeCursor);
+    }
+
+    window.addEventListener('pointermove', event => {
+      if (event.pointerType !== 'mouse') return;
+      cursorX = event.clientX;
+      cursorY = event.clientY;
+      cursor.classList.add('is-visible');
+      requestPlacement();
+    }, { passive:true });
+
+    window.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse') cursor.classList.add('is-pressed');
+    }, { passive:true });
+
+    window.addEventListener('pointerup', () => {
+      cursor.classList.remove('is-pressed');
+    }, { passive:true });
+
+    document.documentElement.addEventListener('pointerleave', () => {
+      cursor.classList.remove('is-visible', 'is-pressed');
+    });
+
+    window.addEventListener('blur', () => {
+      cursor.classList.remove('is-visible', 'is-pressed');
+    });
+  }
+
+  /* ══════════ 1. 首页网格按压凹陷 ══════════ */
+  function initHomeGridDepression(){
+    const body = document.body;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (body.dataset.page !== 'home' || reduceMotion.matches || !window.WebGL2RenderingContext) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'home-water';
+    canvas.setAttribute('aria-hidden', 'true');
+    body.prepend(canvas);
+
+    const gl = canvas.getContext('webgl2', {
+      alpha:false,
+      antialias:false,
+      depth:false,
+      stencil:false,
+      powerPreference:'low-power',
+      preserveDrawingBuffer:false
+    });
+    if (!gl) {
+      canvas.remove();
+      return;
+    }
+
+    const vertexSource = `#version 300 es
+      precision highp float;
+      void main(){
+        vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+        gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+      }`;
+
+    const fragmentSource = `#version 300 es
+      precision highp float;
+
+      out vec4 outColor;
+      uniform vec2  uResolution;
+      uniform vec2  uPointer;
+      uniform float uPressure;
+      uniform float uRadius;
+      uniform float uGridMinor;
+      uniform float uGridMajor;
+      uniform float uMinorOpacity;
+      uniform float uMajorOpacity;
+
+      float gridLine(float value, float size){
+        float q = fract(value / size);
+        float distanceToLine = min(q, 1.0 - q) * size;
+        return 1.0 - smoothstep(0.42, 1.15, distanceToLine);
+      }
+
+      void main(){
+        vec2 p = gl_FragCoord.xy;
+        vec2 delta = p - uPointer;
+        float distanceToPointer = length(delta);
+        float normalizedDistance = distanceToPointer / max(uRadius, 1.0);
+
+        // 只依赖像素距离，确保压力场始终以光标为圆心的圆形。
+        // 位移峰值位于圆形坡面中段，圆心保留平缓底部，避免网格向一点塌缩。
+        float bowl = exp(-pow((normalizedDistance - 0.58) / 0.34, 2.0)) * uPressure;
+        float core = exp(-pow(normalizedDistance / 0.72, 2.0)) * uPressure;
+        float rim = exp(-pow((normalizedDistance - 0.82) / 0.15, 2.0)) * uPressure;
+        vec2 direction = distanceToPointer > 0.001
+          ? delta / distanceToPointer
+          : vec2(0.0);
+        float directionalShadow = max(
+          dot(direction, normalize(vec2(0.55, -0.83))),
+          0.0
+        );
+
+        // 圆形坡面向中心收拢，圆心与外侧边缘分别平滑过渡。
+        vec2 pressedPoint = p + direction * bowl * uRadius * 0.12;
+        vec2 gridPoint = vec2(pressedPoint.x, uResolution.y - pressedPoint.y);
+
+        float minorMask = max(
+          gridLine(gridPoint.x, uGridMinor),
+          gridLine(gridPoint.y, uGridMinor)
+        );
+        float majorMask = max(
+          gridLine(gridPoint.x, uGridMajor),
+          gridLine(gridPoint.y, uGridMajor)
+        );
+
+        float ink = minorMask * uMinorOpacity
+                  + majorMask * uMajorOpacity
+                  + core * 0.005
+                  + rim * (0.005 + directionalShadow * 0.008);
+        vec3 gridColor = vec3(22.0, 24.0, 29.0) / 255.0;
+        vec3 color = mix(vec3(1.0), gridColor, clamp(ink, 0.0, 0.22));
+        outColor = vec4(color, 1.0);
+      }`;
+
+    function compile(type, source){
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)){
+        console.warn(gl.getShaderInfoLog(shader));
+        gl.deleteShader(shader);
+        return null;
+      }
+      return shader;
+    }
+
+    const vertexShader = compile(gl.VERTEX_SHADER, vertexSource);
+    const fragmentShader = compile(gl.FRAGMENT_SHADER, fragmentSource);
+    if (!vertexShader || !fragmentShader){
+      canvas.remove();
+      return;
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)){
+      console.warn(gl.getProgramInfoLog(program));
+      gl.deleteProgram(program);
+      canvas.remove();
+      return;
+    }
+
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    gl.useProgram(program);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+
+    const uniform = name => gl.getUniformLocation(program, name);
+    const uResolution = uniform('uResolution');
+    const uPointer = uniform('uPointer');
+    const uPressure = uniform('uPressure');
+    const uRadius = uniform('uRadius');
+    const uGridMinor = uniform('uGridMinor');
+    const uGridMajor = uniform('uGridMajor');
+    const uMinorOpacity = uniform('uMinorOpacity');
+    const uMajorOpacity = uniform('uMajorOpacity');
+
+    let width = 1;
+    let height = 1;
+    let dpr = 1;
+    let resizePending = true;
+    let visible = true;
+    let frameId = 0;
+    let lastFrameTime = 0;
+    let hasPointer = false;
+
+    const renderState = {
+      x:0,
+      y:0,
+      targetX:0,
+      targetY:0,
+      pressure:0,
+      targetPressure:0
+    };
+
+    const readAlpha = name => {
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      const match = value.match(/,\s*([\d.]+)\s*\)$/);
+      return match ? parseFloat(match[1]) : 0;
+    };
+
+    function syncSize(){
+      width = Math.max(1, window.innerWidth);
+      height = Math.max(1, window.innerHeight);
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      const pixelWidth = Math.round(width * dpr);
+      const pixelHeight = Math.round(height * dpr);
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight){
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+
+      const rootStyle = getComputedStyle(document.documentElement);
+      gl.viewport(0, 0, pixelWidth, pixelHeight);
+      gl.uniform2f(uResolution, pixelWidth, pixelHeight);
+      gl.uniform1f(
+        uRadius,
+        Math.min(190, Math.max(90, Math.min(width, height) * 0.2)) * dpr
+      );
+      gl.uniform1f(uGridMinor, (parseFloat(rootStyle.getPropertyValue('--grid-size')) || 24) * dpr);
+      gl.uniform1f(uGridMajor, (parseFloat(rootStyle.getPropertyValue('--grid-major-size')) || 120) * dpr);
+      gl.uniform1f(uMinorOpacity, readAlpha('--grid-minor'));
+      gl.uniform1f(uMajorOpacity, readAlpha('--grid-major'));
+      resizePending = false;
+    }
+
+    function draw(){
+      if (resizePending) syncSize();
+      gl.uniform2f(uPointer, renderState.x * dpr, renderState.y * dpr);
+      gl.uniform1f(uPressure, renderState.pressure);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    function needsFrame(){
+      return Math.hypot(
+        renderState.targetX - renderState.x,
+        renderState.targetY - renderState.y
+      ) > 0.08
+        || Math.abs(renderState.targetPressure - renderState.pressure) > 0.001;
+    }
+
+    function render(now){
+      frameId = 0;
+      const deltaTime = lastFrameTime
+        ? Math.min((now - lastFrameTime) / 1000, 1 / 30)
+        : 1 / 60;
+      lastFrameTime = now;
+
+      const response = 1 - Math.exp(-deltaTime * 13.5);
+
+      renderState.x += (renderState.targetX - renderState.x) * response;
+      renderState.y += (renderState.targetY - renderState.y) * response;
+      renderState.pressure +=
+        (renderState.targetPressure - renderState.pressure) * response;
+
+      draw();
+      if (visible && needsFrame()){
+        frameId = requestAnimationFrame(render);
+      } else {
+        lastFrameTime = 0;
+      }
+    }
+
+    function requestRender(){
+      if (!frameId && visible) frameId = requestAnimationFrame(render);
+    }
+
+    function setPointer(x, y, pressure){
+      renderState.targetX = x;
+      renderState.targetY = y;
+      renderState.targetPressure = pressure;
+
+      if (!hasPointer){
+        renderState.x = x;
+        renderState.y = y;
+        renderState.pressure = pressure;
+        hasPointer = true;
+      }
+    }
+
+    window.addEventListener('pointermove', event => {
+      if (!visible) return;
+      setPointer(event.clientX, height - event.clientY, 1);
+      requestRender();
+    }, { passive:true });
+
+    window.addEventListener('pointerdown', event => {
+      if (!visible || event.button !== 0) return;
+      setPointer(event.clientX, height - event.clientY, 1);
+      requestRender();
+    }, { passive:true });
+
+    window.addEventListener('pointerup', event => {
+      if (event.pointerType === 'mouse') return;
+      renderState.targetPressure = 0;
+      requestRender();
+    }, { passive:true });
+
+    document.documentElement.addEventListener('pointerleave', () => {
+      renderState.targetPressure = 0;
+      requestRender();
+    });
+
+    window.addEventListener('blur', () => {
+      renderState.targetPressure = 0;
+      requestRender();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      visible = !document.hidden;
+      lastFrameTime = 0;
+      if (visible) requestRender();
+    });
+
+    window.addEventListener('resize', () => {
+      resizePending = true;
+      renderState.targetX = Math.min(renderState.targetX, width);
+      renderState.targetY = Math.min(renderState.targetY, height);
+      requestRender();
+    }, { passive:true });
+
+    syncSize();
+    renderState.x = renderState.targetX = width / 2;
+    renderState.y = renderState.targetY = height / 2;
+    draw();
+  }
+
+  /* ══════════ 2. 项目数据 ══════════ */
   const PROJECTS = [
     { id:'01', file:'assets/01.png', titleZh:'GitHub 主页', titleEn:'GitHub Profile',
       descZh:'个人技术主页与开源空间', tags:['GITHUB','PROFILE'],
@@ -970,7 +1367,8 @@ a.card__media:hover .card__go{
 
   /* ══════════ 6. 入场 ══════════ */
   const skipEntry = () => document.body.classList.add('is-ready', 'no-entry');
-  const beginEntry = () => requestAnimationFrame(() => document.body.classList.add('is-ready'));
+  const beginEntry = () =>
+    requestAnimationFrame(() => document.body.classList.add('is-ready'));
 
   /* ══════════ 7. 主循环 ══════════ */
   let lastQ = NaN;
@@ -1010,6 +1408,8 @@ a.card__media:hover .card__go{
   /* ══════════ 8. 启动 ══════════ */
   function boot(){
     $('year').textContent = String(new Date().getFullYear());
+    initHomeCursor();
+    initHomeGridDepression();
 
     setMode();
     measureMyWay();                // 先算出 distortion 与 SVG 网格
